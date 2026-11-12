@@ -79,28 +79,29 @@ export const PortalDashboard = () => {
             </h1>
             <p style={{ color: "var(--text-muted)", fontSize: "0.92rem", marginTop: "0.25rem" }}>
               {isEmployee
-                ? "Here is your active workload, personal department queue, and dispute redressal progress."
+                ? "Here are the customer grievances reviewed and redirected to you by the Lead Developer."
                 : "Real-time metrics on dispute intake, team load balancing, and SLA compliance."}
             </p>
           </div>
 
           <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
-            {isEmployee && (
+            {isEmployee ? (
               <button
                 className="btn btn-primary btn-sm"
-                onClick={() => navigate(`/portal/${slug}/tickets?assignee=me`)}
+                onClick={() => navigate(`/portal/${slug}/tickets`)}
                 style={{ display: "inline-flex", alignItems: "center", gap: "0.4rem" }}
               >
-                <UserCheck size={14} /> My Assigned Tickets
+                <UserCheck size={14} /> My Redirected Complaints
+              </button>
+            ) : (
+              <button
+                className="btn btn-outline btn-sm"
+                onClick={() => navigate(`/portal/${slug}/tickets`)}
+                style={{ display: "inline-flex", alignItems: "center", gap: "0.4rem" }}
+              >
+                <TicketCheck size={14} /> All Company Tickets ({data.total})
               </button>
             )}
-            <button
-              className="btn btn-outline btn-sm"
-              onClick={() => navigate(`/portal/${slug}/tickets`)}
-              style={{ display: "inline-flex", alignItems: "center", gap: "0.4rem" }}
-            >
-              <TicketCheck size={14} /> All Company Tickets ({data.total})
-            </button>
           </div>
         </div>
       </div>
@@ -169,29 +170,29 @@ export const PortalDashboard = () => {
         <div style={{ marginBottom: "2rem" }}>
           <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.85rem" }}>
             <span style={{ fontSize: "0.75rem", fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--text-muted)" }}>
-              YOUR PERSONAL DESK STATS
+              MY PERSONAL RESOLUTION DESK
             </span>
           </div>
 
           <div className="stat-grid">
             <div
               className="stat-card clickable-card"
-              onClick={() => navigate(`/portal/${slug}/tickets?assignee=me`)}
+              onClick={() => navigate(`/portal/${slug}/tickets`)}
               style={{ cursor: "pointer", transition: "transform 0.15s ease" }}
             >
               <div className="stat-header">
-                <span className="stat-label">ASSIGNED TO ME</span>
+                <span className="stat-label">REDIRECTED TO ME</span>
                 <UserCheck size={18} style={{ color: "var(--accent-hover)" }} />
               </div>
               <div className="stat-value">{myMetrics.assignedTotal}</div>
               <div className="stat-footer" style={{ color: "var(--accent-hover)" }}>
-                Click to inspect your ledger
+                Total assigned by developer
               </div>
             </div>
 
             <div
               className="stat-card clickable-card"
-              onClick={() => navigate(`/portal/${slug}/tickets?assignee=me&status=In+Progress`)}
+              onClick={() => navigate(`/portal/${slug}/tickets?status=active`)}
               style={{ cursor: "pointer" }}
             >
               <div className="stat-header">
@@ -199,16 +200,16 @@ export const PortalDashboard = () => {
                 <Clock size={18} style={{ color: "var(--gold)" }} />
               </div>
               <div className="stat-value">{myMetrics.myActiveCount}</div>
-              <div className="stat-footer">In Progress or Open</div>
+              <div className="stat-footer">Open & In Progress</div>
             </div>
 
             <div
               className="stat-card clickable-card"
-              onClick={() => navigate(`/portal/${slug}/tickets?assignee=me&status=Resolved`)}
+              onClick={() => navigate(`/portal/${slug}/tickets?status=resolved`)}
               style={{ cursor: "pointer" }}
             >
               <div className="stat-header">
-                <span className="stat-label">MY RESOLVED CASES</span>
+                <span className="stat-label">RESOLVED CASES</span>
                 <CheckCircle size={18} style={{ color: "var(--sage)" }} />
               </div>
               <div className="stat-value">{myMetrics.myResolvedCount}</div>
@@ -217,35 +218,35 @@ export const PortalDashboard = () => {
 
             <div
               className="stat-card clickable-card"
-              onClick={() => navigate(`/portal/${slug}/tickets?scope=my-dept`)}
+              onClick={() => navigate(`/portal/${slug}/tickets?status=active`)}
               style={{ cursor: "pointer" }}
             >
               <div className="stat-header">
-                <span className="stat-label">{user?.department ? user.department.toUpperCase() : "DEPARTMENT"} QUEUE</span>
+                <span className="stat-label">SLA ON TRACK</span>
                 <Layers size={18} style={{ color: "var(--slate)" }} />
               </div>
-              <div className="stat-value">{myMetrics.departmentQueueCount}</div>
-              <div className="stat-footer">Open in your department</div>
+              <div className="stat-value">{data.slaCompliance}%</div>
+              <div className="stat-footer">{data.slaBreached} breached target</div>
             </div>
           </div>
         </div>
       )}
 
-      {/* ─── COMPANY OVERALL PERFORMANCE OVERVIEW ─── */}
+      {/* ─── PERFORMANCE OVERVIEW (Scoped for Employee, Platform-wide for Developer) ─── */}
       <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.85rem" }}>
         <span style={{ fontSize: "0.75rem", fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--text-muted)" }}>
-          COMPANY SLA & VOLUME SNAPSHOT
+          {isEmployee ? "MY RESOLUTION & COMPLIANCE SUMMARY" : "COMPANY SLA & VOLUME SNAPSHOT"}
         </span>
       </div>
 
       <div className="stat-grid" style={{ marginBottom: "2rem" }}>
         <div className="stat-card">
           <div className="stat-header">
-            <span className="stat-label">TOTAL TICKETS</span>
+            <span className="stat-label">{isEmployee ? "MY TOTAL TICKETS" : "TOTAL TICKETS"}</span>
             <TicketCheck size={18} />
           </div>
           <div className="stat-value">{data.total}</div>
-          <div className="stat-footer">Across all departments</div>
+          <div className="stat-footer">{isEmployee ? "Assigned to your desk" : "Across all departments"}</div>
         </div>
         <div className="stat-card">
           <div className="stat-header">
@@ -274,63 +275,73 @@ export const PortalDashboard = () => {
       </div>
 
       {/* ─── ACTIONABLE CASES TABLE FOR EMPLOYEE ─── */}
-      {isEmployee && myMetrics?.recentAssigned && myMetrics.recentAssigned.length > 0 && (
+      {isEmployee && (
         <div className="dashboard-section" style={{ marginBottom: "2rem" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.75rem" }}>
             <h2 className="section-title" style={{ margin: 0 }}>
-              <UserCheck size={16} /> MY ACTIVE ASSIGNED CASES ({myMetrics.recentAssigned.length})
+              <UserCheck size={16} /> MY ACTIVE REDIRECTED CASES ({myMetrics?.recentAssigned?.length || 0})
             </h2>
             <Link
-              to={`/portal/${slug}/tickets?assignee=me`}
+              to={`/portal/${slug}/tickets`}
               style={{ fontSize: "0.82rem", color: "var(--accent-hover)", textDecoration: "none", fontWeight: 600, display: "inline-flex", alignItems: "center", gap: "0.3rem" }}
             >
               View all my cases <ArrowRight size={13} />
             </Link>
           </div>
 
-          <div className="data-table-container">
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>Ticket ID</th>
-                  <th>Customer</th>
-                  <th>Subject</th>
-                  <th>Priority</th>
-                  <th>Status</th>
-                  <th>Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {myMetrics.recentAssigned.map((t) => (
-                  <tr key={t.ticketId} className="clickable-row" onClick={() => navigate(`/portal/${slug}/tickets/${t.ticketId}`)}>
-                    <td>
-                      <code className="ticket-id">{t.ticketId}</code>
-                    </td>
-                    <td className="font-medium">{t.customer?.name}</td>
-                    <td>{t.subject}</td>
-                    <td>
-                      <span className={`badge priority-${t.priority.toLowerCase()}`}>{t.priority}</span>
-                    </td>
-                    <td>
-                      <span className={`badge status-${t.status.toLowerCase().replace(/\s+/g, "-")}`}>{t.status}</span>
-                    </td>
-                    <td>
-                      <button
-                        className="btn-sm btn-outline"
-                        style={{ fontSize: "0.75rem", padding: "0.2rem 0.5rem" }}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          navigate(`/portal/${slug}/tickets/${t.ticketId}`);
-                        }}
-                      >
-                        Resolve
-                      </button>
-                    </td>
+          {myMetrics?.recentAssigned && myMetrics.recentAssigned.length > 0 ? (
+            <div className="data-table-container">
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>Ticket ID</th>
+                    <th>Customer</th>
+                    <th>Subject</th>
+                    <th>Priority</th>
+                    <th>Status</th>
+                    <th>Action</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {myMetrics.recentAssigned.map((t) => (
+                    <tr key={t.ticketId} className="clickable-row" onClick={() => navigate(`/portal/${slug}/tickets/${t.ticketId}`)}>
+                      <td>
+                        <code className="ticket-id">{t.ticketId}</code>
+                      </td>
+                      <td className="font-medium">{t.customer?.name}</td>
+                      <td>{t.subject}</td>
+                      <td>
+                        <span className={`badge priority-${t.priority.toLowerCase()}`}>{t.priority}</span>
+                      </td>
+                      <td>
+                        <span className={`badge status-${t.status.toLowerCase().replace(/\s+/g, "-")}`}>{t.status}</span>
+                      </td>
+                      <td>
+                        <button
+                          className="btn-sm btn-outline"
+                          style={{ fontSize: "0.75rem", padding: "0.2rem 0.5rem" }}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            navigate(`/portal/${slug}/tickets/${t.ticketId}`);
+                          }}
+                        >
+                          Resolve
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div style={{ textAlign: "center", padding: "2.5rem 1rem", background: "var(--bg-card)", border: "1px dashed var(--border-color)", borderRadius: "var(--radius-sm)" }}>
+              <CheckCircle size={30} style={{ color: "var(--sage)", marginBottom: "0.5rem" }} />
+              <div style={{ fontWeight: 600, color: "var(--text-main)", fontSize: "0.95rem" }}>All Caught Up!</div>
+              <div style={{ fontSize: "0.82rem", color: "var(--text-muted)", marginTop: "0.25rem" }}>
+                You have no active pending complaints. New complaints reviewed and redirected to you by the Lead Developer will appear here.
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -412,11 +423,11 @@ export const PortalDashboard = () => {
         </div>
       </div>
 
-      {/* ─── Escalation Watchlist ─── */}
+      {/* ─── Escalation Watchlist (Personal for Employee, Company-wide for Developer) ─── */}
       {data.escalationWatch && data.escalationWatch.length > 0 && (
         <div className="dashboard-section">
           <h2 className="section-title">
-            <AlertTriangle size={16} /> HIGH PRIORITY ESCALATION WATCH ({data.escalationWatch.length})
+            <AlertTriangle size={16} /> {isEmployee ? "MY HIGH PRIORITY COMPLAINTS" : "HIGH PRIORITY ESCALATION WATCH"} ({data.escalationWatch.length})
           </h2>
           <div className="data-table-container">
             <table className="data-table">
@@ -444,7 +455,7 @@ export const PortalDashboard = () => {
                     <td>
                       <span className={`badge status-${t.status.toLowerCase().replace(/\s+/g, "-")}`}>{t.status}</span>
                     </td>
-                    <td>{t.slaHours}h target</td>
+                    <td>{t.slaHours ? `${t.slaHours}h target` : "24h target"}</td>
                   </tr>
                 ))}
               </tbody>
