@@ -173,7 +173,17 @@ router.get('/dashboard', authenticate, authorize('developer', 'employee', 'super
     const tickets = await Ticket.find({ company: company._id })
       .select('status category priority slaDeadline csat assignedTo')
       .lean();
-    const total = tickets.length;
+
+    const isEmployee = req.user.role === 'employee';
+    const isDeveloper = req.user.role === 'developer';
+
+    // ─── STRICT EMPLOYEE SCOPING ───
+    // Employees ONLY see metrics for complaints assigned/redirected to them by the developer.
+    const effectiveTickets = isEmployee
+      ? tickets.filter((t) => t.assignedTo && t.assignedTo.toString() === req.userId.toString())
+      : tickets;
+
+    const total = effectiveTickets.length;
 
     const byStatus = {};
     const byCategory = {};
@@ -181,7 +191,7 @@ router.get('/dashboard', authenticate, authorize('developer', 'employee', 'super
     let csatSum = 0;
     let csatCount = 0;
 
-    tickets.forEach((t) => {
+    effectiveTickets.forEach((t) => {
       byStatus[t.status] = (byStatus[t.status] || 0) + 1;
       byCategory[t.category] = (byCategory[t.category] || 0) + 1;
       byPriority[t.priority] = (byPriority[t.priority] || 0) + 1;
@@ -197,27 +207,35 @@ router.get('/dashboard', authenticate, authorize('developer', 'employee', 'super
 
     // SLA compliance
     const now = new Date();
-    const slaBreached = tickets.filter(
+    const slaBreached = effectiveTickets.filter(
       (t) => !['Resolved', 'Closed'].includes(t.status) && t.slaDeadline && new Date(t.slaDeadline) < now
     ).length;
     const slaCompliance = total > 0 ? (((total - slaBreached) / total) * 100).toFixed(1) : '100.0';
 
     // Recent tickets (lean + projected)
-    const recentTickets = await Ticket.find({ company: company._id })
+    const recentTicketsQuery = { company: company._id };
+    if (isEmployee) {
+      recentTicketsQuery.assignedTo = req.userId;
+    }
+    const recentTickets = await Ticket.find(recentTicketsQuery)
       .sort({ createdAt: -1 })
       .limit(10)
-      .select('ticketId subject status priority category createdAt customer assignedTo')
+      .select('ticketId subject status priority category createdAt customer assignedTo slaHours')
       .populate('assignedTo', 'name email department')
       .lean();
 
-    // High priority watchlist
-    const escalationWatch = await Ticket.find({
+    // High priority watchlist (scoped to employee if role is employee, with slaHours included)
+    const escalationQuery = {
       company: company._id,
       priority: { $in: ['High', 'Critical'] },
       status: { $nin: ['Resolved', 'Closed'] },
-    })
+    };
+    if (isEmployee) {
+      escalationQuery.assignedTo = req.userId;
+    }
+    const escalationWatch = await Ticket.find(escalationQuery)
       .sort({ createdAt: -1 })
-      .select('ticketId subject status priority category createdAt customer assignedTo')
+      .select('ticketId subject status priority category createdAt customer assignedTo slaHours')
       .populate('assignedTo', 'name email department')
       .lean();
 
@@ -226,10 +244,6 @@ router.get('/dashboard', authenticate, authorize('developer', 'employee', 'super
       role: 'employee',
       status: 'active',
     });
-
-    // ─── Employee & Developer Specific Perspectives ───
-    const isEmployee = req.user.role === 'employee';
-    const isDeveloper = req.user.role === 'developer';
 
     let myMetrics = null;
     let developerMetrics = null;
@@ -241,21 +255,15 @@ router.get('/dashboard', authenticate, authorize('developer', 'employee', 'super
       const myActive = myTickets.filter((t) => !['Resolved', 'Closed'].includes(t.status));
       const myResolved = myTickets.filter((t) => ['Resolved', 'Closed'].includes(t.status));
 
-      const myDept = (req.user.department || '').toLowerCase().trim();
-      const departmentQueue = tickets.filter((t) => {
-        if (['Resolved', 'Closed'].includes(t.status)) return false;
-        if (!myDept) return false;
-        const cat = (t.category || '').toLowerCase();
-        return cat.includes(myDept) || myDept.includes(cat);
-      });
-
+      // Active assigned tickets only (excludes resolved/closed so "Resolve" button makes sense)
       const myRecentTickets = await Ticket.find({
         company: company._id,
         assignedTo: req.userId,
+        status: { $nin: ['Resolved', 'Closed'] },
       })
         .sort({ updatedAt: -1 })
         .limit(6)
-        .select('ticketId subject status priority category createdAt customer')
+        .select('ticketId subject status priority category createdAt customer slaHours')
         .lean();
 
       myMetrics = {
@@ -264,7 +272,7 @@ router.get('/dashboard', authenticate, authorize('developer', 'employee', 'super
         assignedTotal: myTickets.length,
         myActiveCount: myActive.length,
         myResolvedCount: myResolved.length,
-        departmentQueueCount: departmentQueue.length,
+        departmentQueueCount: myActive.length, // Only active assigned complaints
         recentAssigned: myRecentTickets,
       };
     }
@@ -345,7 +353,7 @@ router.put('/branding', authenticate, authorize('developer', 'superadmin'), auth
 // ─── Employee Management (Developer only) ───
 
 // GET /api/companies/:slug/employees
-router.get('/employees', authenticate, authorize('developer', 'superadmin'), authorizeCompany, async (req, res) => {
+router.get('/employees', authenticate, authorize('developer', 'employee', 'superadmin'), authorizeCompany, async (req, res) => {
   try {
     const company = await getCompany(req, res);
     if (!company) return;

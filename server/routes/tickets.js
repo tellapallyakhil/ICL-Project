@@ -118,11 +118,11 @@ router.get('/', authenticate, authorize('developer', 'employee', 'superadmin'), 
     const { status, priority, category, search, assignee, scope, page = 1, limit = 50 } = req.query;
     const filter = { company: company._id };
 
-    if (status) filter.status = status;
-    if (priority) filter.priority = priority;
-    if (category) filter.category = category;
-
-    if (assignee) {
+    // ─── STRICT EMPLOYEE ROLE ISOLATION ───
+    // An employee MUST ONLY see complaints assigned/redirected to them by the developer.
+    if (req.user.role === 'employee') {
+      filter.assignedTo = req.userId;
+    } else if (assignee) {
       if (assignee === 'me') {
         filter.assignedTo = req.userId;
       } else if (assignee === 'unassigned') {
@@ -131,6 +131,18 @@ router.get('/', authenticate, authorize('developer', 'employee', 'superadmin'), 
         filter.assignedTo = assignee;
       }
     }
+
+    if (status) {
+      if (status === 'active') {
+        filter.status = { $in: ['Open', 'In Progress', 'Escalated'] };
+      } else if (status === 'resolved') {
+        filter.status = { $in: ['Resolved', 'Closed'] };
+      } else {
+        filter.status = status;
+      }
+    }
+    if (priority) filter.priority = priority;
+    if (category) filter.category = category;
 
     if (scope === 'my-dept' && req.user?.department) {
       const deptRegex = new RegExp(req.user.department.trim(), 'i');
@@ -255,12 +267,9 @@ router.post('/', authenticate, authorize('customer'), async (req, res) => {
     const resolvedCategory = (category && category.trim()) || 'General Support';
     const ticketId = await company.generateTicketId();
 
-    // ─── Topic-Based Employee Routing ───
-    const matchedEmployee = await findResponsibleEmployeeForTopic({
-      companyId: company._id,
-      category: resolvedCategory,
-    });
-
+    // ─── Developer Triage Queue Intake ───
+    // All incoming complaints are forwarded directly to the Company Developer triage queue first.
+    // Complaints ONLY appear to an employee once the Developer reviews and redirects them.
     const initialTimeline = [
       {
         action: 'Ticket Created',
@@ -268,23 +277,13 @@ router.post('/', authenticate, authorize('customer'), async (req, res) => {
         details: `Complaint filed under "${resolvedCategory}" with ${priority || 'Medium'} priority.${incidentDate ? ` Incident Date: ${new Date(incidentDate).toLocaleDateString()}` : ''}`,
         isInternal: false,
       },
-    ];
-
-    if (matchedEmployee) {
-      initialTimeline.push({
-        action: 'Internal Staff Allocated',
-        by: 'Routing Engine',
-        details: `Auto-routed to ${matchedEmployee.name} (${matchedEmployee.department || 'Support'}).`,
-        isInternal: true, // Internal audit only, hidden from customer
-      });
-    } else {
-      initialTimeline.push({
+      {
         action: 'Developer Triage Queue',
         by: 'Routing Engine',
-        details: `No active department specialist found for "${resolvedCategory}". Forwarded to Company Developer triage queue.`,
+        details: `Forwarded to Company Developer triage queue for review and employee assignment.`,
         isInternal: true, // Internal audit only, hidden from customer
-      });
-    }
+      },
+    ];
 
     const ticket = await Ticket.create({
       ticketId,
@@ -297,7 +296,7 @@ router.post('/', authenticate, authorize('customer'), async (req, res) => {
       },
       category: resolvedCategory,
       priority: priority || 'Medium',
-      assignedTo: matchedEmployee ? matchedEmployee._id : null,
+      assignedTo: null, // Awaits developer review & redirection
       subject: subject.trim(),
       description: description.trim(),
       timeline: initialTimeline,
@@ -320,43 +319,29 @@ router.post('/', authenticate, authorize('customer'), async (req, res) => {
         );
       }
 
-      // 2. Staff / Developer Notification — dispatched concurrently in parallel
-      if (matchedEmployee) {
-        console.log(`[Auto-Routing] Routing ticket ${ticket.ticketId} to department employee ${matchedEmployee.name} (${matchedEmployee.department})`);
+      // 2. Developer Triage Alert — dispatched so Developer can inspect and redirect to employee
+      const { User } = await import('../models/User.js');
+      let developer = null;
+      if (company.developer) {
+        developer = await User.findById(company.developer).select('name email role');
+      }
+
+      if (!developer || !developer.email) {
+        developer = await User.findOne({ role: 'superadmin' }).select('name email role');
+      }
+
+      if (developer) {
+        console.log(`[Developer Triage Alert] Notifying developer ${developer.name} for ticket ${ticket.ticketId}`);
         emailDispatches.push(
-          sendTicketAssignedToEmployeeNotification({
+          sendTicketFallbackToDeveloperNotification({
             company,
-            employee: matchedEmployee,
+            developer,
             ticket,
-            isAutoRouted: true,
+            reason: `A new customer grievance (#${ticket.ticketId}) under "${resolvedCategory}" has been submitted. It has entered your Developer Triage Queue for review and assignment to an employee.`,
           }).catch((err) => {
-            console.error('✕ Employee alert error:', err.message);
+            console.error('✕ Developer triage alert error:', err.message);
           })
         );
-      } else {
-        const { User } = await import('../models/User.js');
-        let developer = null;
-        if (company.developer) {
-          developer = await User.findById(company.developer).select('name email role');
-        }
-
-        if (!developer || !developer.email) {
-          developer = await User.findOne({ role: 'superadmin' }).select('name email role');
-        }
-
-        if (developer) {
-          console.log(`[Auto-Routing Fallback] No department employee found for "${resolvedCategory}". Notifying developer ${developer.name}`);
-          emailDispatches.push(
-            sendTicketFallbackToDeveloperNotification({
-              company,
-              developer,
-              ticket,
-              reason: `New grievance filed under "${resolvedCategory}". Because no dedicated employee has been assigned to this department yet, this ticket has been routed to your Developer Queue to resolve or redirect.`,
-            }).catch((err) => {
-              console.error('✕ Developer fallback alert error:', err.message);
-            })
-          );
-        }
       }
 
       // Execute both notifications concurrently so neither blocks the other
@@ -447,6 +432,14 @@ router.get('/:ticketId', authenticate, async (req, res) => {
     if (['developer', 'employee'].includes(req.user.role)) {
       if (!req.user.company || req.user.company.toString() !== company._id.toString()) {
         return res.status(403).json({ error: 'Access denied.' });
+      }
+    }
+
+    // Strict Employee Isolation: Employee can ONLY view tickets assigned/redirected to them!
+    if (req.user.role === 'employee') {
+      const assignedId = ticket.assignedTo?._id ? ticket.assignedTo._id.toString() : (ticket.assignedTo ? ticket.assignedTo.toString() : null);
+      if (!assignedId || assignedId !== req.userId.toString()) {
+        return res.status(403).json({ error: 'Access denied. This complaint has not been assigned or redirected to you.' });
       }
     }
 

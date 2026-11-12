@@ -94,7 +94,7 @@ export const TicketList = () => {
   };
 
   const isEmployee = currentRole === "employee";
-  const hasActiveFilters = Boolean(search || statusFilter || priorityFilter || scopeFilter !== "all");
+  const hasActiveFilters = Boolean(search || statusFilter || priorityFilter || (!isEmployee && scopeFilter !== "all"));
 
   return (
     <div className="management-page">
@@ -102,7 +102,9 @@ export const TicketList = () => {
       <div className="page-header" style={{ marginBottom: "1.25rem" }}>
         <div>
           <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.2rem" }}>
-            <span className="page-label">DISPUTE REDRESSAL REGISTRY</span>
+            <span className="page-label">
+              {isEmployee ? "EMPLOYEE REDIRECTED COMPLAINTS" : "DISPUTE REDRESSAL REGISTRY"}
+            </span>
             {isEmployee && (
               <span
                 style={{
@@ -115,11 +117,16 @@ export const TicketList = () => {
                   color: "var(--accent-hover)",
                 }}
               >
-                {user?.department || "Support"}
+                {user?.department || "Support"} Specialist
               </span>
             )}
           </div>
-          <h1>Ticket Ledger ({total})</h1>
+          <h1>{isEmployee ? `My Assigned Complaints (${total})` : `Ticket Ledger (${total})`}</h1>
+          {isEmployee && (
+            <p style={{ color: "var(--text-muted)", fontSize: "0.85rem", margin: "0.2rem 0 0" }}>
+              Only customer complaints reviewed and redirected to you by the Lead Developer appear in this registry.
+            </p>
+          )}
         </div>
       </div>
 
@@ -134,47 +141,59 @@ export const TicketList = () => {
           borderBottom: "1px solid var(--border-color)",
         }}
       >
-        <button
-          type="button"
-          className={`btn btn-sm ${scopeFilter === "all" ? "btn-primary" : "btn-outline"}`}
-          onClick={() => setScopeFilter("all")}
-          style={{ fontSize: "0.82rem", display: "inline-flex", alignItems: "center", gap: "0.35rem" }}
-        >
-          <Inbox size={14} /> All Company Tickets
-        </button>
-
-        {isEmployee && (
+        {isEmployee ? (
           <>
             <button
               type="button"
-              className={`btn btn-sm ${scopeFilter === "me" ? "btn-primary" : "btn-outline"}`}
-              onClick={() => setScopeFilter("me")}
+              className={`btn btn-sm ${!statusFilter ? "btn-primary" : "btn-outline"}`}
+              onClick={() => {
+                setStatusFilter("");
+                setScopeFilter("all");
+              }}
               style={{ fontSize: "0.82rem", display: "inline-flex", alignItems: "center", gap: "0.35rem" }}
             >
-              <UserCheck size={14} /> Assigned to Me
+              <UserCheck size={14} /> All Redirected to Me ({total})
             </button>
 
-            {user?.department && (
-              <button
-                type="button"
-                className={`btn btn-sm ${scopeFilter === "my-dept" ? "btn-primary" : "btn-outline"}`}
-                onClick={() => setScopeFilter("my-dept")}
-                style={{ fontSize: "0.82rem", display: "inline-flex", alignItems: "center", gap: "0.35rem" }}
-              >
-                <Layers size={14} /> My Department Queue ({user.department})
-              </button>
-            )}
+            <button
+              type="button"
+              className={`btn btn-sm ${statusFilter === "active" ? "btn-primary" : "btn-outline"}`}
+              onClick={() => setStatusFilter("active")}
+              style={{ fontSize: "0.82rem", display: "inline-flex", alignItems: "center", gap: "0.35rem" }}
+            >
+              <Clock size={14} /> Active Cases (Open / In Progress)
+            </button>
+
+            <button
+              type="button"
+              className={`btn btn-sm ${statusFilter === "resolved" ? "btn-primary" : "btn-outline"}`}
+              onClick={() => setStatusFilter("resolved")}
+              style={{ fontSize: "0.82rem", display: "inline-flex", alignItems: "center", gap: "0.35rem" }}
+            >
+              <CheckCircle size={14} /> Resolved & Closed
+            </button>
+          </>
+        ) : (
+          <>
+            <button
+              type="button"
+              className={`btn btn-sm ${scopeFilter === "all" ? "btn-primary" : "btn-outline"}`}
+              onClick={() => setScopeFilter("all")}
+              style={{ fontSize: "0.82rem", display: "inline-flex", alignItems: "center", gap: "0.35rem" }}
+            >
+              <Inbox size={14} /> All Company Tickets
+            </button>
+
+            <button
+              type="button"
+              className={`btn btn-sm ${scopeFilter === "unassigned" ? "btn-primary" : "btn-outline"}`}
+              onClick={() => setScopeFilter("unassigned")}
+              style={{ fontSize: "0.82rem", display: "inline-flex", alignItems: "center", gap: "0.35rem" }}
+            >
+              <AlertTriangle size={14} /> Unassigned Triage
+            </button>
           </>
         )}
-
-        <button
-          type="button"
-          className={`btn btn-sm ${scopeFilter === "unassigned" ? "btn-primary" : "btn-outline"}`}
-          onClick={() => setScopeFilter("unassigned")}
-          style={{ fontSize: "0.82rem", display: "inline-flex", alignItems: "center", gap: "0.35rem" }}
-        >
-          <AlertTriangle size={14} /> Unassigned Triage
-        </button>
 
         {hasActiveFilters && (
           <button
